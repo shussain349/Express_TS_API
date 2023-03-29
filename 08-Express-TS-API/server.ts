@@ -1,7 +1,13 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response , NextFunction, Router} from 'express';
 
 import appLogger from './middleware/appLogger';
+import { authenticateToken1 } from './middleware/middleware';
 
+import rateLimit from 'express-rate-limit';
+import jwt,{JwtPayload} from 'jsonwebtoken';
+
+
+// For Search API
 interface SearchResult {
   name: string;
   symbol: string;
@@ -19,6 +25,14 @@ type Asset = {
   description: string;
 };
 //
+//For Security Authentication
+interface AuthRequest extends Request  {
+  user?: {
+    id: string;
+    username: string;
+    email: string;
+  };
+}
 
 //for SearchResult
 const stocksData: SearchResult[] = [
@@ -82,11 +96,55 @@ const Fx: Asset[] = [
 ];
 //
 
+
+
+
+
+
 const app = express();
 const port = 3000;
 
-app.use(appLogger);
+
+app.use(appLogger);//For Date and Time
+let router = app.use(authenticateToken1);//For Token Authentication from middleware.ts file
 app.use(express.json());
+
+
+
+
+
+// Set rate limiting for API requests
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+});
+
+app.get('/api', limiter);
+
+function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  const secretKey = 'syedKazmi';
+
+  if (authHeader) {
+    const token = authHeader.split(' ')[1];
+
+    jwt.verify(token, secretKey, (err, decoded) => {
+      if (err) {
+        return res.sendStatus(403);
+      }
+
+      req.user = decoded as { id: string; username: string; email: string; };
+      next();
+    });
+  } else {
+    res.sendStatus(401);
+  }
+}
+router.get('/protected', authenticateToken, (req, res) => {
+  res.json({ message: 'This is a protected route' });
+});
+//
+
 
 
 //for SearchResult
@@ -141,7 +199,7 @@ app.get("/result/:type/:symbol", (req, res) => {
 
   res.json(asset);
 });
-
+//
 
 
 
@@ -149,3 +207,9 @@ app.get("/result/:type/:symbol", (req, res) => {
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 });
+
+
+/*To run this we need to run npm start and
+ For SearchResult our URL will be like GET http://search?text=apple&type=Stocks
+For Result our URL will be like GET http://result/Crypto/BTC
+*/
